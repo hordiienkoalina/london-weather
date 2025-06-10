@@ -299,58 +299,99 @@ server <- function(input, output, session) {
     output[[paste0(var, "_plot")]] <- renderPlotly({
       df <- filtered_data()
       
-      # Adjust y-axis limits manually for specific variables
+      is_zero_or_na <- function(x) {
+        all(is.na(x) | x == 0)
+      }
+      
       fixed <- switch(var,
-                      pressure   = c(950, 1050),
+                      pressure   = c(950, 1050),  # convert Pa to hPa
                       snow_depth = c(0, 25),
-                      NULL
-      )
+                      NULL)
       
       if (input$view_mode == "monthly") {
         dfm <- df %>%
-          mutate(month = factor(format(date, "%b"), levels = month.abb),
-                 val = if (var == "pressure") .data[[var]] / 100 else .data[[var]]) %>%
+          mutate(
+            month = factor(format(date, "%b"), levels = month.abb),
+            val = if (var == "pressure") .data[[var]] / 100 else .data[[var]]
+          ) %>%
           group_by(month) %>%
           summarise(val = mean(val, na.rm = TRUE), .groups = "drop")
+        
+        if (is_zero_or_na(dfm$val)) {
+          return(plotly_empty(type = "scatter", mode = "markers") %>%
+                   layout(
+                     xaxis = list(visible = FALSE),
+                     yaxis = list(visible = FALSE),
+                     annotations = list(
+                       list(
+                         text = "All values are zero or missing for the selected time period.",
+                         xref = "paper", yref = "paper",
+                         x = 0.5, y = 0.5, showarrow = FALSE,
+                         font = list(size = 14)
+                       )
+                     )
+                   ))
+        }
         
         rng <- if (is.null(fixed)) range(dfm$val, na.rm = TRUE) else fixed
         pad <- 0.05 * diff(rng)
         lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
         upper <- rng[2] + pad
         
-        p <- ggplot(dfm, aes(x = month, y = val)) +
+        dfm$val_clipped <- pmin(pmax(dfm$val, lower), upper)
+        
+        p <- ggplot(dfm, aes(x = month, y = val_clipped, text = paste0("value: ", round(val, 2)))) +
           geom_col(fill = variable_colors[[var]], width = 0.6) +
           labs(x = NULL, y = variable_units[[var]]) +
           scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
           theme_minimal() +
           theme(
             panel.grid.major.x = element_blank(),
-            panel.grid.minor = element_blank(),
-            axis.text = element_text(size = 10)
+            panel.grid.minor   = element_blank(),
+            axis.text          = element_text(size = 10)
           )
         
       } else {
         df$val <- if (var == "pressure") df[[var]] / 100 else df[[var]]
+        
+        if (is_zero_or_na(df$val)) {
+          return(plotly_empty(type = "scatter", mode = "markers") %>%
+                   layout(
+                     xaxis = list(visible = FALSE),
+                     yaxis = list(visible = FALSE),
+                     annotations = list(
+                       list(
+                         text = "All values are zero or missing for the selected time period.",
+                         xref = "paper", yref = "paper",
+                         x = 0.5, y = 0.5, showarrow = FALSE,
+                         font = list(size = 14)
+                       )
+                     )
+                   ))
+        }
         
         rng <- if (is.null(fixed)) range(df$val, na.rm = TRUE) else fixed
         pad <- 0.05 * diff(rng)
         lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
         upper <- rng[2] + pad
         
-        p <- ggplot(df, aes(x = date, y = val)) +
+        p <- ggplot(df, aes(x = date, y = val, text = paste0("value: ", round(val, 2)), group = 1)) +
           geom_line(color = variable_colors[[var]], size = 0.8) +
           labs(x = NULL, y = variable_units[[var]]) +
           scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
           theme_minimal() +
           theme(
             panel.grid.major.x = element_blank(),
-            panel.grid.minor = element_blank(),
-            axis.text = element_text(size = 10)
+            panel.grid.minor   = element_blank(),
+            axis.text          = element_text(size = 10)
           )
       }
       
-      ggplotly(p, tooltip = c("x", "y")) %>%
-        layout(margin = list(b = 40))
+      ggplotly(p, tooltip = c("x", "text")) %>%
+        layout(
+          margin = list(b = 40),
+          yaxis = list(range = c(lower, upper))
+        )
     })
   })
 }
