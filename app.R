@@ -20,7 +20,7 @@ variable_units <- list(
   global_radiation = "Global Radiation (W/m²)",
   precipitation    = "Precipitation (mm)",
   cloud_cover      = "Cloud Cover (oktas)",
-  pressure         = "Atmospheric Pressure (Pa)",
+  pressure         = "Atmospheric Pressure (hPa)",
   snow_depth       = "Snow Depth (cm)"
 )
 
@@ -298,64 +298,59 @@ server <- function(input, output, session) {
   lapply(extra_vars, function(var) {
     output[[paste0(var, "_plot")]] <- renderPlotly({
       df <- filtered_data()
+      
+      # Adjust y-axis limits manually for specific variables
       fixed <- switch(var,
-                      pressure   = c(95000, 105000),
+                      pressure   = c(950, 1050),
                       snow_depth = c(0, 25),
                       NULL
       )
       
       if (input$view_mode == "monthly") {
         dfm <- df %>%
-          mutate(month = factor(format(date, "%b"),
-                                levels = month.abb)) %>%
+          mutate(month = factor(format(date, "%b"), levels = month.abb),
+                 val = if (var == "pressure") .data[[var]] / 100 else .data[[var]]) %>%
           group_by(month) %>%
-          summarise(val = mean(.data[[var]], na.rm=TRUE))
+          summarise(val = mean(val, na.rm = TRUE), .groups = "drop")
         
-        if (is.null(fixed)) {
-          rng <- range(dfm$val, na.rm=TRUE)
-          pad <- 0.05 * diff(rng)
-          lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
-          upper <- rng[2] + pad
-        } else {
-          lower <- fixed[1]; upper <- fixed[2]
-        }
+        rng <- if (is.null(fixed)) range(dfm$val, na.rm = TRUE) else fixed
+        pad <- 0.05 * diff(rng)
+        lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
+        upper <- rng[2] + pad
         
         p <- ggplot(dfm, aes(x = month, y = val)) +
           geom_col(fill = variable_colors[[var]], width = 0.6) +
           labs(x = NULL, y = variable_units[[var]]) +
-          scale_y_continuous(limits = c(lower, upper),
-                             expand = expansion(0)) +
+          scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
           theme_minimal() +
           theme(
             panel.grid.major.x = element_blank(),
-            panel.grid.minor   = element_blank(),
-            axis.text          = element_text(size = 10)
+            panel.grid.minor = element_blank(),
+            axis.text = element_text(size = 10)
           )
         
       } else {
-        if (is.null(fixed)) {
-          rng <- range(df[[var]], na.rm=TRUE)
-          pad <- 0.05 * diff(rng)
-          lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
-          upper <- rng[2] + pad
-        } else {
-          lower <- fixed[1]; upper <- fixed[2]
-        }
+        df$val <- if (var == "pressure") df[[var]] / 100 else df[[var]]
         
-        p <- ggplot(df, aes(x = date, y = .data[[var]])) +
+        rng <- if (is.null(fixed)) range(df$val, na.rm = TRUE) else fixed
+        pad <- 0.05 * diff(rng)
+        lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
+        upper <- rng[2] + pad
+        
+        p <- ggplot(df, aes(x = date, y = val)) +
           geom_line(color = variable_colors[[var]], size = 0.8) +
           labs(x = NULL, y = variable_units[[var]]) +
-          scale_y_continuous(limits = c(lower, upper),
-                             expand = expansion(0)) +
+          scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
           theme_minimal() +
           theme(
             panel.grid.major.x = element_blank(),
-            panel.grid.minor   = element_blank(),
-            axis.text          = element_text(size = 10)
+            panel.grid.minor = element_blank(),
+            axis.text = element_text(size = 10)
           )
       }
       
-      ggplotly(p, tooltip = c("x", "y")) %>% layout(margin = list(b = 40))
+      ggplotly(p, tooltip = c("x", "y")) %>%
+        layout(margin = list(b = 40))
     })
   })
 }
