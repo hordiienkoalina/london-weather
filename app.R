@@ -72,8 +72,8 @@ ui <- fluidPage(
           The dataset includes continuous observations of temperature, precipitation, sunshine duration,
           cloud cover, atmospheric pressure, global radiation, and snow depth. The interface enables data 
           filtering by a specified date range and switching between three views: daily, monthly average 
-          across all years, and monthly-by-year. Summary statistics are provided for each selected period, 
-          accompanied by interactive visualisations that reflect trends and variations across the recorded variables.",
+          across all years, and monthly-by-year. You can also choose which extra metrics to display. 
+          Summary statistics are provided for each selected period, accompanied by interactive visualisations.",
                  style = "margin-bottom: 0;")
            )
     )
@@ -101,6 +101,7 @@ ui <- fluidPage(
            )
     )
   ),
+  
   br(),
   
   fluidRow(
@@ -129,6 +130,20 @@ ui <- fluidPage(
                  status    = "default",
                  size      = "sm",
                  justified = TRUE
+               ),
+               br(),
+               h4("🔧 Select Metrics"),
+               pickerInput(
+                 inputId   = "selected_vars",
+                 label     = NULL,
+                 choices   = setNames(extra_vars, variable_units[extra_vars]),
+                 selected  = extra_vars,
+                 multiple  = TRUE,
+                 options   = list(
+                   `actions-box` = TRUE,
+                   container     = "body"    # <- dropdown will float above everything
+                 ),
+                 width     = "100%"
                )
            )
     ),
@@ -140,17 +155,8 @@ ui <- fluidPage(
     )
   ),
   
-  do.call(tagList, lapply(extra_vars, function(var) {
-    fluidRow(
-      column(3, NULL),
-      column(9,
-             div(class = "chart-container",
-                 h4(variable_units[[var]]),
-                 plotlyOutput(paste0(var, "_plot"), height = "300px")
-             )
-      )
-    )
-  }))
+  # dynamic extra-variable plots
+  uiOutput("extra_plots")
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -162,7 +168,7 @@ server <- function(input, output, session) {
              date <= input$date_range[2])
   })
   
-  # map + summary cards (unchanged) ----
+  # map + summary cards
   output$map <- renderLeaflet({
     leaflet() %>% addTiles() %>%
       setView(lng = -0.4543, lat = 51.4700, zoom = 11) %>%
@@ -211,7 +217,7 @@ server <- function(input, output, session) {
     )
   })
   
-  # Temperature chart ----
+  # Temperature chart
   output$temp_chart <- renderPlotly({
     df <- filtered_data()
     vm <- input$view_mode
@@ -220,116 +226,144 @@ server <- function(input, output, session) {
       dfm <- df %>%
         mutate(month = factor(format(date, "%b"), levels = month.abb)) %>%
         group_by(month) %>%
-        summarise(min_temp = mean(min_temp, na.rm=TRUE),
-                  mean_temp= mean(mean_temp,na.rm=TRUE),
-                  max_temp = mean(max_temp, na.rm=TRUE),
-                  .groups="drop")
+        summarise(
+          min_temp  = mean(min_temp,  na.rm = TRUE),
+          mean_temp = mean(mean_temp, na.rm = TRUE),
+          max_temp  = mean(max_temp,  na.rm = TRUE),
+          .groups   = "drop"
+        )
       
-      p <- ggplot(dfm, aes(month)) +
-        geom_col(aes(y=max_temp), fill=variable_colors["max_temp"], width=0.6) +
-        geom_col(aes(y=min_temp), fill=variable_colors["min_temp"], width=0.6) +
-        geom_line(aes(y=mean_temp, group=1), color=variable_colors["mean_temp"], size=1.2) +
-        geom_point(aes(y=mean_temp), color=variable_colors["mean_temp"], size=2)
+      p <- ggplot(dfm, aes(x = month)) +
+        geom_col(aes(y = max_temp), fill = variable_colors["max_temp"], width = 0.6) +
+        geom_col(aes(y = min_temp), fill = variable_colors["min_temp"], width = 0.6) +
+        geom_line(aes(y = mean_temp, group = 1), color = variable_colors["mean_temp"], size = 1.2) +
+        geom_point(aes(y = mean_temp), color = variable_colors["mean_temp"], size = 2)
       
     } else if (vm == "monthly_year") {
       dfm <- df %>%
         mutate(year_month = floor_date(date, "month")) %>%
         group_by(year_month) %>%
-        summarise(min_temp = mean(min_temp, na.rm=TRUE),
-                  mean_temp= mean(mean_temp,na.rm=TRUE),
-                  max_temp = mean(max_temp, na.rm=TRUE),
-                  .groups="drop")
+        summarise(
+          min_temp  = mean(min_temp,  na.rm = TRUE),
+          mean_temp = mean(mean_temp, na.rm = TRUE),
+          max_temp  = mean(max_temp,  na.rm = TRUE),
+          .groups   = "drop"
+        )
       
-      p <- ggplot(dfm, aes(year_month)) +
-        geom_line(aes(y=max_temp), color=variable_colors["max_temp"], size=0.6) +
-        geom_line(aes(y=min_temp), color=variable_colors["min_temp"], size=0.6) +
-        geom_line(aes(y=mean_temp), color=variable_colors["mean_temp"], size=1.2)
+      p <- ggplot(dfm, aes(x = year_month)) +
+        geom_line(aes(y = max_temp), color = variable_colors["max_temp"], size = 0.6) +
+        geom_line(aes(y = min_temp), color = variable_colors["min_temp"], size = 0.6) +
+        geom_line(aes(y = mean_temp), color = variable_colors["mean_temp"], size = 1.2)
       
     } else {
-      p <- ggplot(df, aes(date)) +
-        geom_line(aes(y=min_temp), color=variable_colors["min_temp"], size=0.6) +
-        geom_line(aes(y=max_temp), color=variable_colors["max_temp"], size=0.6) +
-        geom_line(aes(y=mean_temp), color=variable_colors["mean_temp"], size=1.2)
+      p <- ggplot(df, aes(x = date)) +
+        geom_line(aes(y = min_temp),  color = variable_colors["min_temp"],  size = 0.6) +
+        geom_line(aes(y = max_temp),  color = variable_colors["max_temp"],  size = 0.6) +
+        geom_line(aes(y = mean_temp), color = variable_colors["mean_temp"], size = 1.2)
     }
     
     p <- p +
-      labs(x=NULL, y="°C") +
+      labs(x = NULL, y = "°C") +
       theme_minimal() +
-      scale_y_continuous(breaks=seq(0,25,5)) +
-      theme(panel.grid.major.x=element_blank(),
-            panel.grid.minor=element_blank(),
-            axis.text=element_text(size=10))
+      scale_y_continuous(breaks = seq(0, 25, 5)) +
+      theme(
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor   = element_blank(),
+        axis.text          = element_text(size = 10)
+      )
     
-    ggplotly(p, tooltip=c("x","y")) %>%
-      layout(margin=list(b=40))
+    ggplotly(p, tooltip = c("x", "y")) %>%
+      layout(margin = list(b = 40))
   })
   
-  # Extra-variable plots ----
+  # dynamic UI for extra-variable plots
+  output$extra_plots <- renderUI({
+    req(input$selected_vars)
+    plots <- lapply(input$selected_vars, function(var) {
+      fluidRow(
+        column(3, NULL),
+        column(9,
+               div(class = "chart-container",
+                   h4(variable_units[[var]]),
+                   plotlyOutput(paste0(var, "_plot"), height = "300px")
+               )
+        )
+      )
+    })
+    do.call(tagList, plots)
+  })
+  
+  # Extra-variable plots logic (unchanged)
   lapply(extra_vars, function(var) {
     output[[paste0(var, "_plot")]] <- renderPlotly({
       df <- filtered_data()
       vm <- input$view_mode
       
-      # prepare dfm with common columns key_x and val
       if (vm == "monthly_avg") {
         dfm <- df %>%
-          mutate(month = factor(format(date, "%b"), levels=month.abb),
-                 val   = if(var=="pressure") .data[[var]]/100 else .data[[var]]) %>%
+          mutate(
+            month = factor(format(date, "%b"), levels = month.abb),
+            val   = if (var == "pressure") .data[[var]]/100 else .data[[var]]
+          ) %>%
           group_by(month) %>%
-          summarise(val=mean(val, na.rm=TRUE), .groups="drop") %>%
-          rename(key_x=month)
+          summarise(val = mean(val, na.rm = TRUE), .groups = "drop") %>%
+          rename(key_x = month)
+        
       } else if (vm == "monthly_year") {
         dfm <- df %>%
-          mutate(year_month = floor_date(date,"month"),
-                 val         = if(var=="pressure") .data[[var]]/100 else .data[[var]]) %>%
+          mutate(
+            year_month = floor_date(date, unit = "month"),
+            val        = if (var == "pressure") .data[[var]]/100 else .data[[var]]
+          ) %>%
           group_by(year_month) %>%
-          summarise(val=mean(val, na.rm=TRUE), .groups="drop") %>%
-          rename(key_x=year_month)
+          summarise(val = mean(val, na.rm = TRUE), .groups = "drop") %>%
+          rename(key_x = year_month)
+        
       } else {
         dfm <- df %>%
-          mutate(val = if(var=="pressure") .data[[var]]/100 else .data[[var]]) %>%
+          mutate(val = if (var == "pressure") .data[[var]]/100 else .data[[var]]) %>%
           select(key_x = date, val)
       }
       
-      # handle all-zero/missing
-      if (all(is.na(dfm$val) | dfm$val==0)) {
+      if (all(is.na(dfm$val) | dfm$val == 0)) {
         return(
-          plotly_empty(type="scatter", mode="markers") %>%
+          plotly_empty(type = "scatter", mode = "markers") %>%
             layout(
-              xaxis=list(visible=FALSE),
-              yaxis=list(visible=FALSE),
-              annotations=list(list(
-                text="All values are zero or missing for the selected period.",
-                xref="paper", yref="paper", x=0.5, y=0.5,
-                showarrow=FALSE, font=list(size=14)
+              xaxis = list(visible = FALSE),
+              yaxis = list(visible = FALSE),
+              annotations = list(list(
+                text     = "All values are zero or missing for the selected period.",
+                xref     = "paper", yref = "paper",
+                x        = 0.5, y        = 0.5,
+                showarrow= FALSE, font = list(size = 14)
               ))
             )
         )
       }
       
-      # set y-limits: fixed for pressure, dynamic for others
       if (var == "pressure") {
         lower <- 950
         upper <- 1050
       } else {
-        rng <- range(dfm$val, na.rm=TRUE)
-        pad <- 0.05*diff(rng)
-        lower <- ifelse(rng[1]>0, 0, rng[1]-pad)
-        upper <- rng[2]+pad
+        rng   <- range(dfm$val, na.rm = TRUE)
+        pad   <- 0.05 * diff(rng)
+        lower <- ifelse(rng[1] > 0, 0, rng[1] - pad)
+        upper <- rng[2] + pad
       }
       
-      # plot
-      p <- ggplot(dfm, aes(x=key_x, y=val, text=paste0("value: ",round(val,2)), group=1)) +
-        geom_line(color=variable_colors[[var]], size=0.8) +
-        labs(x=NULL, y=variable_units[[var]]) +
-        scale_y_continuous(limits=c(lower,upper), expand=expansion(0)) +
+      p <- ggplot(dfm, aes(x = key_x, y = val, text = paste0("value: ", round(val, 2)), group = 1)) +
+        geom_line(color = variable_colors[[var]], size = 0.8) +
+        labs(x = NULL, y = variable_units[[var]]) +
+        scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
         theme_minimal() +
-        theme(panel.grid.major.x=element_blank(),
-              panel.grid.minor=element_blank(),
-              axis.text=element_text(size=10))
+        theme(
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor   = element_blank(),
+          axis.text          = element_text(size = 10)
+        )
       
-      ggplotly(p, tooltip=c("x","text")) %>%
-        layout(margin=list(b=40), yaxis=list(range=c(lower,upper)))
+      ggplotly(p, tooltip = c("x", "text")) %>%
+        layout(margin = list(b = 40), yaxis = list(range = c(lower, upper)))
     })
   })
 }
