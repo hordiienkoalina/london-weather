@@ -454,7 +454,7 @@ server <- function(input, output, session) {
     )
   })
   output$dark_streak_card <- renderUI({
-    e <- ext()
+    e <- ext()    # <<— add this line
     div(class = "summary-card",
         div(class = "summary-value", paste0(e$dark_len, " days")),
         div(class = "summary-label", "Longest Dark Streak")
