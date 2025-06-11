@@ -2,7 +2,9 @@
 
 This Shiny app displays weather data collected at Heathrow Airport in London from 1979 to 2020. Users can view and compare daily readings or monthly averages for several variables, including temperature, precipitation, sunshine, cloud cover, pressure, radiation, and snow depth.
 
-## 📸 Screenshot
+## 🖼️ Interface Preview
+
+![alt text](screenshot.jpeg)
 
 ## ⚙️ Setup and Installation
 
