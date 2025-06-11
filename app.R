@@ -62,6 +62,8 @@ ui <- fluidPage(
   fluidRow(
     column(3,
            br(),
+           br(),
+           br(),
            h1("London Weather", style = "text-align:center;"),
            h4("1979 – 2020", style = "text-align:center;")
     ),
@@ -84,17 +86,26 @@ ui <- fluidPage(
            div(class = "info-panel", style = "height:250px;",
                h3("📍 Location"),
                leafletOutput("map", height = "160px")
-           )
+           ),
+           br(),
+           # Total observations under Location
+           uiOutput("period_stats_card")
     ),
     column(9,
+           # First row of summary cards
            fluidRow(
              column(4, uiOutput("avg_temp_card")),
              column(4, uiOutput("total_precip_card")),
              column(4, uiOutput("avg_pressure_card"))
            ),
            br(),
+           # Second row: place Missing Observations under Avg Sunshine
            fluidRow(
-             column(4, uiOutput("avg_sunshine_card")),
+             column(4,
+                    uiOutput("avg_sunshine_card"),
+                    br(),
+                    uiOutput("missing_stats_card")
+             ),
              column(4, uiOutput("avg_cloud_card")),
              column(4, uiOutput("avg_radiation_card"))
            )
@@ -136,7 +147,7 @@ ui <- fluidPage(
                  label     = NULL,
                  choices   = setNames(
                    c("temperature", "extreme", extra_vars),
-                   c("Temperature (°C)", "Extreme Weather Events", variable_units[extra_vars])
+                   c("Temperature (°C)", variable_units[extra_vars], "Extreme Weather Events")
                  ),
                  selected  = c("temperature", "extreme", extra_vars),
                  multiple  = TRUE,
@@ -167,7 +178,7 @@ ui <- fluidPage(
       column(3, NULL),
       column(9,
              div(class = "chart-container",
-                 h4("Extreme Weather Events"),
+                 h4("🏆 Extreme Weather Events"),
                  fluidRow(
                    column(3, uiOutput("hot_day_card")),
                    column(3, uiOutput("cold_day_card")),
@@ -239,6 +250,39 @@ server <- function(input, output, session) {
         div(class = "summary-label", "Avg Radiation")
     )
   })
+  output$period_stats_card <- renderUI({
+    df <- filtered_data()
+    # number of days in the period (inclusive)
+    num_days <- as.numeric(difftime(max(df$date), min(df$date), units = "days")) + 1
+    # number of observations
+    vars     <- names(variable_units)
+    num_obs  <- sum(!is.na(df[ , vars]))
+    
+    div(class = "summary-card",
+        div(class = "summary-value",
+            paste0(num_days, " days, ", num_obs, " obs")
+        ),
+        div(class = "summary-label", "Period Stats")
+    )
+  })
+  output$missing_stats_card <- renderUI({
+    df   <- filtered_data()
+    vars <- names(variable_units)
+    # total possible cells
+    total_cells <- nrow(df) * length(vars)
+    # number missing
+    num_missing <- sum(is.na(df[, vars]))
+    # percentage missing
+    pct_missing <- round(100 * num_missing / total_cells, 1)
+    
+    div(class = "summary-card",
+        div(class = "summary-value",
+            paste0(num_missing, " (", pct_missing, "%)")
+        ),
+        div(class = "summary-label", "Missing Observations")
+    )
+  })
+
   
   # Temperature chart with bar-mode fix
   output$temp_chart <- renderPlotly({
@@ -295,6 +339,7 @@ server <- function(input, output, session) {
     }
     gg %>% layout(margin = list(b = 40))
   })
+  
   
   # Extra-variable plots UI
   output$extra_plots <- renderUI({
