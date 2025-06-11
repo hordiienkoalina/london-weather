@@ -66,6 +66,9 @@ ui <- fluidPage(
            h4("1979 – 2020", style = "text-align:center;")
     ),
     column(9,
+           br(),
+           br(),
+           br(),
            div(class = "info-panel",
                h4("About", style = "color:#666666;"),
                p("This dashboard presents daily and aggregated weather insights for Heathrow Airport (1979–2020). Use the controls to filter dates, switch views, select metrics, and explore extreme events and temperature.",
@@ -237,7 +240,7 @@ server <- function(input, output, session) {
     )
   })
   
-  # Temperature chart
+  # Temperature chart with bar-mode fix
   output$temp_chart <- renderPlotly({
     df <- filtered_data()
     vm <- input$view_mode
@@ -246,9 +249,9 @@ server <- function(input, output, session) {
         mutate(month = factor(format(date, "%b"), levels = month.abb)) %>%
         group_by(month) %>%
         summarise(
-          min_temp  = mean(min_temp, na.rm = TRUE),
-          mean_temp = mean(mean_temp, na.rm = TRUE),
-          max_temp  = mean(max_temp, na.rm = TRUE),
+          min_temp  = round((mean(min_temp, na.rm = TRUE)), 1),
+          mean_temp = round((mean(mean_temp, na.rm = TRUE)), 1),
+          max_temp  = round((mean(max_temp, na.rm = TRUE)), 1),
           .groups   = "drop"
         )
       p <- ggplot(dfm, aes(x = month)) +
@@ -279,8 +282,18 @@ server <- function(input, output, session) {
     p <- p + labs(x = NULL, y = "°C") +
       theme_minimal() +
       scale_y_continuous(breaks = seq(0, 25, 5)) +
-      theme(panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(), axis.text = element_text(size = 10))
-    ggplotly(p, tooltip = c("x", "y")) %>% layout(margin = list(b = 40))
+      theme(panel.grid.major.x = element_blank(),
+            panel.grid.minor = element_blank(),
+            axis.text = element_text(size = 10))
+    
+    # Convert and strip 'mode' from bar traces
+    gg <- ggplotly(p, tooltip = c("x", "y"))
+    for (i in seq_along(gg$x$data)) {
+      if (gg$x$data[[i]]$type == "bar") {
+        gg$x$data[[i]]$mode <- NULL
+      }
+    }
+    gg %>% layout(margin = list(b = 40))
   })
   
   # Extra-variable plots UI
@@ -354,66 +367,98 @@ server <- function(input, output, session) {
         labs(x = NULL, y = variable_units[[var]]) +
         scale_y_continuous(limits = c(lower, upper), expand = expansion(0)) +
         theme_minimal() +
-        theme(panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(), axis.text = element_text(size = 10))
-      ggplotly(p, tooltip = c("x", "text")) %>% layout(margin = list(b = 40), yaxis = list(range = c(lower, upper)))
+        theme(panel.grid.major.x = element_blank(),
+              panel.grid.minor = element_blank(),
+              axis.text = element_text(size = 10))
+      ggplotly(p, tooltip = c("x", "text")) %>%
+        layout(margin = list(b = 40), yaxis = list(range = c(lower, upper)))
     })
   })
   
-  # Extreme weather events calculations
+  # Extreme weather events calculations with snow-depth handling
   ext <- reactive({
     df <- filtered_data()
     sunny_flag <- df$sunshine > 0
     r <- rle(sunny_flag)
+    
+    # Hottest
+    hot_idx  <- which.max(df$max_temp)
+    hot_date <- df$date[hot_idx]
+    hot_val  <- max(df$max_temp, na.rm = TRUE)
+    # Coldest
+    cold_idx  <- which.min(df$min_temp)
+    cold_date <- df$date[cold_idx]
+    cold_val  <- min(df$min_temp, na.rm = TRUE)
+    # Wettest
+    wet_idx  <- which.max(df$precipitation)
+    wet_date <- df$date[wet_idx]
+    wet_val  <- max(df$precipitation, na.rm = TRUE)
+    # Snowiest, handle all-NA
+    if (all(is.na(df$snow_depth))) {
+      snow_date <- NA
+      snow_val  <- NA
+    } else {
+      snow_idx  <- which.max(df$snow_depth)
+      snow_date <- df$date[snow_idx]
+      snow_val  <- max(df$snow_depth, na.rm = TRUE)
+    }
+    # Sunny/dark streaks
+    sunny_len <- if (any(r$values)) max(r$lengths[r$values]) else 0
+    dark_len  <- if (any(!r$values)) max(r$lengths[!r$values]) else 0
+    
     list(
-      hot_date  = df$date[which.max(df$max_temp)],
-      hot_val   = max(df$max_temp, na.rm = TRUE),
-      cold_date = df$date[which.min(df$min_temp)],
-      cold_val  = min(df$min_temp, na.rm = TRUE),
-      wet_date  = df$date[which.max(df$precipitation)],
-      wet_val   = max(df$precipitation, na.rm = TRUE),
-      snow_date = df$date[which.max(df$snow_depth)],
-      snow_val  = max(df$snow_depth, na.rm = TRUE),
-      sunny_len = if (any(r$values)) max(r$lengths[r$values]) else 0,
-      dark_len  = if (any(!r$values)) max(r$lengths[!r$values]) else 0
+      hot_date  = hot_date,  hot_val  = hot_val,
+      cold_date = cold_date, cold_val = cold_val,
+      wet_date  = wet_date,  wet_val  = wet_val,
+      snow_date = snow_date, snow_val = snow_val,
+      sunny_len = sunny_len, dark_len  = dark_len
     )
   })
   
   # Extreme weather UI cards
-  output$hot_day_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(round(e$hot_val, 1), "°C")),
-      div(class = "summary-label", paste0("Hottest: ", e$hot_date))
-  )
+  output$hot_day_card <- renderUI({
+    e <- ext()
+    div(class = "summary-card",
+        div(class = "summary-value", paste0(round(e$hot_val, 1), "°C")),
+        div(class = "summary-label", paste0("Hottest: ", e$hot_date))
+    )
   })
-  output$cold_day_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(round(e$cold_val, 1), "°C")),
-      div(class = "summary-label", paste0("Coldest: ", e$cold_date))
-  )
+  output$cold_day_card <- renderUI({
+    e <- ext()
+    div(class = "summary-card",
+        div(class = "summary-value", paste0(round(e$cold_val, 1), "°C")),
+        div(class = "summary-label", paste0("Coldest: ", e$cold_date))
+    )
   })
-  output$wet_day_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(round(e$wet_val, 1), " mm")),
-      div(class = "summary-label", paste0("Wettest: ", e$wet_date))
-  )
+  output$wet_day_card <- renderUI({
+    e <- ext()
+    div(class = "summary-card",
+        div(class = "summary-value", paste0(round(e$wet_val, 1), " mm")),
+        div(class = "summary-label", paste0("Wettest: ", e$wet_date))
+    )
   })
-  output$snowy_day_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(round(e$snow_val, 1), " cm")),
-      div(class = "summary-label", paste0("Snowiest: ", e$snow_date))
-  )
+  output$snowy_day_card <- renderUI({
+    e <- ext()
+    val        <- if (is.na(e$snow_val)) "N/A" else paste0(round(e$snow_val, 1), " cm")
+    date_label <- if (is.na(e$snow_date)) "N/A" else as.character(e$snow_date)
+    div(class = "summary-card",
+        div(class = "summary-value", val),
+        div(class = "summary-label", paste0("Snowiest: ", date_label))
+    )
   })
-  output$sunny_streak_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(e$sunny_len, " days")),
-      div(class = "summary-label", "Longest Sunny Streak")
-  )
+  output$sunny_streak_card <- renderUI({
+    e <- ext()
+    div(class = "summary-card",
+        div(class = "summary-value", paste0(e$sunny_len, " days")),
+        div(class = "summary-label", "Longest Sunny Streak")
+    )
   })
-  output$dark_streak_card <- renderUI({ e <- ext();
-  div(class = "summary-card",
-      div(class = "summary-value", paste0(e$dark_len, " days")),
-      div(class = "summary-label", "Longest Dark Streak")
-  )
+  output$dark_streak_card <- renderUI({
+    e <- ext()
+    div(class = "summary-card",
+        div(class = "summary-value", paste0(e$dark_len, " days")),
+        div(class = "summary-label", "Longest Dark Streak")
+    )
   })
 }
 
